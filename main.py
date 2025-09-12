@@ -5,7 +5,7 @@ import base64
 from flask import Flask, request
 from google.cloud import storage, secretmanager
 import psycopg2
-from marker.convert import PdfConverter
+from marker.converters.pdf import PdfConverter
 from marker.models import create_model_dict
 from marker.output import text_from_rendered
 import urllib.request
