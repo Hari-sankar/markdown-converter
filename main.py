@@ -2,6 +2,8 @@ import os
 import json
 import tempfile
 import base64
+
+from more_itertools import bucket
 from flask import Flask, request
 from google.cloud import storage, secretmanager
 import psycopg2
@@ -79,6 +81,21 @@ def save_to_db(filename, cv_data, metadata):
     conn.close()
     print(f"✅ File saved to DB: {filename}")
 
+def move_file(bucket_name, blob_name, new_blob_name):
+    client = storage.Client()
+    bucket = client.bucket(bucket_name)
+    blob = bucket.blob(blob_name)
+
+    # Copy file to new location
+    new_blob = bucket.blob(new_blob_name)
+    new_blob.rewrite(blob)
+
+    # Delete original
+    blob.delete()
+
+    print(f"Moved {blob_name} → {new_blob_name}")
+
+
 def parse_pubsub_envelope(envelope):
     """Support Pub/Sub push body structure and raw GCS notification JSON."""
     # Pub/Sub push format: { "message": { "data": "<base64 json>", ... } }
@@ -129,6 +146,11 @@ def process():
 
         # Save to DB
         save_to_db(blob_name, cv_data, metadata)
+
+        processed_path = f"processed_cv/{blob_name}"
+        move_file(bucket, blob_name, processed_path)
+        print(f"✅ File {blob_name} processed and moved to {processed_path}")
+
 
         # Optionally: upload images to GCS or Supabase storage (not implemented here)
         print(f"🎯 Processing complete for file: {blob_name}")
