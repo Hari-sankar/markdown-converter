@@ -1,0 +1,6 @@
+flask
+gunicorn
+google-cloud-storage
+google-cloud-secret-manager
+psycopg2-binary
+marker-pdf
