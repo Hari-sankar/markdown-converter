@@ -3,7 +3,6 @@ import json
 import tempfile
 import base64
 
-from more_itertools import bucket
 from flask import Flask, request
 from google.cloud import storage, secretmanager
 import psycopg2
