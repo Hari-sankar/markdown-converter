@@ -1,6 +1,7 @@
-flask
-gunicorn
+fastapi
+uvicorn[standard]
 google-cloud-storage
 google-cloud-secret-manager
+google-cloud-pubsub
 psycopg2-binary
 marker-pdf
