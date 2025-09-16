@@ -147,7 +147,7 @@ def process():
         # Save to DB
         save_to_db(blob_name, cv_data, metadata)
 
-        processed_path = f"processed_cv/{blob_name}"
+        processed_path = f"rsd-parser/md-converted/{blob_name}"
         move_file(bucket, blob_name, processed_path)
         print(f"✅ File {blob_name} processed and moved to {processed_path}")
 
