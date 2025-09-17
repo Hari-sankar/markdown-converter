@@ -4,12 +4,13 @@ import base64
 import tempfile
 import logging
 import urllib.request
+import pickle
+
 
 from fastapi import FastAPI, Request
 from google.cloud import storage, secretmanager
 import psycopg2
-from marker.converters.pdf import PdfConverter
-from marker.models import create_model_dict
+
 from marker.output import text_from_rendered
 
 # Setup logging
@@ -22,11 +23,57 @@ app = FastAPI()
 storage_client = storage.Client()
 secret_client = secretmanager.SecretManagerServiceClient()
 
-# Load heavy model once at container startup
-logger.info("⏳ Loading marker-pdf model (one-time at container start)...")
-converter = PdfConverter(artifact_dict=create_model_dict())
-logger.info("✅ marker-pdf model loaded successfully.")
 
+# Setup logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+app = FastAPI()
+
+# Clients
+storage_client = storage.Client()
+secret_client = secretmanager.SecretManagerServiceClient()
+
+# Model loading from GCS 
+MODEL_DIR = "/models"
+MODEL_BUCKET = os.getenv("MODEL_BUCKET", "rsd-parser")
+MODEL_PATH = os.getenv("MODEL_PATH", "models/md_converter_model.pkl")  
+
+os.makedirs(MODEL_DIR, exist_ok=True)
+
+def load_model():
+    """
+    Loads a model from a .pkl file.
+    If the model is not present locally in MODEL_DIR, it is downloaded from
+    Google Cloud Storage.
+    """
+    local_model_path = os.path.join(MODEL_DIR, "model.pkl")
+
+    # Check if the local model file does not exist
+    if not os.path.exists(local_model_path):
+        logger.info(f"📥 Fetching Marker-PDF model from gs://{MODEL_BUCKET}/{MODEL_PATH} ...")
+        
+        # Ensure the target directory exists
+        os.makedirs(MODEL_DIR, exist_ok=True)
+        
+        bucket = storage_client.bucket(MODEL_BUCKET)
+        blob = bucket.blob(MODEL_PATH)
+        
+        # Download the pickle file to the designated local path
+        blob.download_to_filename(local_model_path)
+        logger.info(f"✅ Model downloaded to {local_model_path}")
+
+    logger.info("⏳ Loading Marker-PDF model from .pkl file into memory...")
+    
+    # Load the model from the .pkl file in binary read mode
+    with open(local_model_path, 'rb') as f:
+        model = pickle.load(f)
+        
+    logger.info("✅ Marker-PDF model ready.")
+    return model
+
+# Load once per container
+converter = load_model()
 
 def get_project_id():
     proj = os.getenv("GCP_PROJECT") or os.getenv("GOOGLE_CLOUD_PROJECT")
@@ -87,15 +134,23 @@ def save_to_db(filename: str, cv_data: str, metadata: dict):
     logger.info(f"✅ File saved to DB: {filename}")
 
 
-def move_file(bucket_name: str, blob_name: str, new_blob_name: str):
+def move_file(bucket_name: str, blob_name: str):
     bucket = storage_client.bucket(bucket_name)
     blob = bucket.blob(blob_name)
-    new_blob = bucket.blob(new_blob_name)
+
+    # Replace only the first "raw/" occurrence with "processed/"
+    if blob_name.startswith("raw/"):
+        processed_path = blob_name.replace("raw/", "processed/", 1)
+    else:
+        processed_path = f"processed/{os.path.basename(blob_name)}"
+
+    new_blob = bucket.blob(processed_path)
 
     # Copy then delete
     new_blob.rewrite(blob)
     blob.delete()
-    logger.info(f"📂 Moved {blob_name} → {new_blob_name}")
+    logger.info(f"📂 Moved {blob_name} → {processed_path}")
+
 
 
 def parse_pubsub_envelope(envelope: dict):
@@ -142,8 +197,9 @@ async def process_pubsub(request: Request):
         save_to_db(blob_name, cv_data, metadata)
 
         # Move original file into "processed/" folder
-        processed_path = f"processed/{blob_name}"
-        move_file(bucket_name, blob_name, processed_path)
+        print("original file:", blob_name)
+
+        move_file(bucket_name, blob_name)
 
         logger.info(f"✅ Processing complete for {blob_name}")
         return {"status": "ok"}

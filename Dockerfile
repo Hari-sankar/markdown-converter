@@ -6,6 +6,7 @@ RUN apt-get update && apt-get install -y \
     build-essential \
     libpq-dev \
     curl \
+    git \
     && rm -rf /var/lib/apt/lists/*
 
 # Set workdir
@@ -14,6 +15,9 @@ WORKDIR /app
 # Install Python dependencies
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
+
+# Pre-download Marker-PDF models into /models
+RUN python -c "from marker.models import create_model_dict; create_model_dict(cache_dir='/models')"
 
 # Copy app
 COPY main.py .
